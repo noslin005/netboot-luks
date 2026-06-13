@@ -1,0 +1,41 @@
+#!ipxe
+
+echo =============================================
+echo  PXE Lab Boot Server — 10.12.0.100
+echo =============================================
+echo MAC:  ${mac}
+echo =============================================
+echo
+#ifopen
+#dhcp net0 || goto dhcp_failed
+#ifstat
+
+echo Printing route table
+route
+
+set base-url    https://10.12.0.100/images
+set image-url   ${base-url}/rootfs.luks
+set luks-uuid   1507f56e-cd96-445a-ae30-4d71ea77404e
+
+initrd ${base-url}/initrd.img
+kernel ${base-url}/vmlinuz \
+    initrd=initrd.img \
+    ip=dhcp \
+    selinux=0 \
+    rd.shell \
+    rd.live.encrypted \
+    rd.neednet=1 \
+    rd.luks=1 \
+    rd.live.luks.url=${image-url} 
+
+boot || goto boot_failed
+
+:dhcp_failed
+echo ERROR: DHCP failed
+sleep 30
+reboot
+
+:boot_failed
+echo ERROR: Boot failed
+sleep 30
+shell
