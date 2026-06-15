@@ -25,6 +25,15 @@ getargbool 0 rd.live.luks || exit 0
 live_luks_url=$(getarg rd.live.luks.url)
 [ -z "$live_luks_url" ] && die "rd.live.luks.url not set"
 
+LUKS_KEY=$(getarg rd.live.luks.key)
+[ -z "$LUKS_KEY" ] && LUKS_KEY="-"
+
+RUN_SIZE=$(getarg rd.run.size)
+[ -z "$RUN_SIZE" ] && RUN_SIZE="4G"
+
+info "Resizing /run to $RUN_SIZE"
+mount -o remount,size="$RUN_SIZE" /run 2>/dev/null || warn "resize failed"
+
 
 # Check Network
 info "Waiting for network..."
@@ -36,8 +45,13 @@ done
 [ $retries -eq 0 ] && die "No default route after timeout";
 
 # Download Image
-info "Fetching: $live_luks_url"
 mkdir -p /run/initramfs
+info "Fetching: $live_luks_url"
+IMAGE_SIZE=$(curl -sI "$live_luks_url"|awk -v IGNORECASE=1 '/^content-length/{print $NF}'|tr -d '\r')
+[ -z $IMAGE_SIZE  ] && die "Received empty file"
+truncate -s "$IMAGE_SIZE" "$LUKS_IMAGE" || die "Failed to allocate $IMAGE_SIZE bytes - not enough RAM"
+info "Alocated $IMAGE_SIZE bytes for live image"
+
 if ! fetch_url "$live_luks_url" "$LUKS_IMAGE"; then
     die "Failed to download image from $live_luks_url"
     exit 254
@@ -76,7 +90,7 @@ else
 
     # Calls systemd-cryptsetup to unlock the device
     # Format: systemd-cryptsetup attach <name> <device> <keyfile> <options>
-    /usr/lib/systemd/systemd-cryptsetup attach "$MAPPER_NAME" "$loop_dev" "-" "luks,tries=1,token-timeout=30" >&1
+    /usr/lib/systemd/systemd-cryptsetup attach "$MAPPER_NAME" "$loop_dev" "$LUKS_KEY" "luks,tries=1,token-timeout=30" >&1
     sleep 2
 
     # Check if device is unlocked
@@ -99,4 +113,6 @@ mount --bind "$SQUASH_MNT" "$ROOTFS_BASE"
 mount -t overlay live-luks-rootfs -o lowerdir="$ROOTFS_BASE",upperdir=/run/overlays/upper,workdir=/run/overlays/work "$NEWROOT" || die "Failed to mount overlayfs on $NEWROOT"
 
 # Jump into the new root
-SYSTEMD_IN_INITRD=lenient exec switch_root "$NEWROOT" /init
+#SYSTEMD_IN_INITRD=lenient exec switch_root "$NEWROOT" /init
+exit 0
+
